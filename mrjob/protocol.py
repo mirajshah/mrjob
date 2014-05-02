@@ -48,7 +48,7 @@ class _KeyCachingProtocol(object):
         """Encode a single key/value, and return it."""
         raise NotImplementedError
 
-    def read(self, line):
+    def read(self, line, idx=None):
         """Decode a line of input.
 
         :type line: str
@@ -92,8 +92,8 @@ class JSONValueProtocol(object):
     """Encode ``value`` as a JSON and discard ``key``
     (``key`` is read in as ``None``).
     """
-    def read(self, line):
-        return (None, json.loads(line))
+    def read(self, line, idx=None):
+        return (idx, json.loads(line))
 
     def write(self, key, value):
         return json.dumps(value)
@@ -121,7 +121,7 @@ class PickleValueProtocol(object):
     """Encode ``value`` as a string-escaped pickle and discard ``key``
     (``key`` is read in as ``None``).
     """
-    def read(self, line):
+    def read(self, line, idx=None):
         return (None, cPickle.loads(line.decode('string_escape')))
 
     def write(self, key, value):
@@ -141,7 +141,7 @@ class RawProtocol(object):
     Your key should probably not be ``None`` or have tab characters in it, but
     we don't check.
     """
-    def read(self, line):
+    def read(self, line, idx=None):
         key_value = line.split('\t', 1)
         if len(key_value) == 1:
             key_value.append(None)
@@ -158,8 +158,8 @@ class RawValueProtocol(object):
 
     The default way for a job to read its initial input.
     """
-    def read(self, line):
-        return (None, line)
+    def read(self, line, idx=None):
+        return (idx, line)
 
     def write(self, key, value):
         return value
@@ -184,7 +184,7 @@ class ReprValueProtocol(object):
 
     This only works for basic types (we use :py:func:`mrjob.util.safeeval`).
     """
-    def read(self, line):
+    def read(self, line, idx=None):
         return (None, safeeval(line))
 
     def write(self, key, value):

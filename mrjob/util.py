@@ -398,6 +398,51 @@ def read_input(path, stdin=None):
     for line in read_file(path):
         yield line
 
+def read_input_linenums(path, stdin=None):
+    """Stream input the way Hadoop would.
+
+    - Resolve globs (``foo_*.gz``).
+    - Decompress ``.gz`` and ``.bz2`` files.
+    - If path is ``'-'``, read from stdin
+    - If path is a directory, recursively read its contents.
+
+    You can redefine *stdin* for ease of testing. *stdin* can actually be
+    any iterable that yields lines (e.g. a list).
+    """
+    if stdin is None:
+        stdin = sys.stdin
+
+    # handle '-' (special case)
+    if path == '-':
+        for line in stdin:
+            yield line
+        return
+
+    # resolve globs
+    paths = glob.glob(path)
+    if not paths:
+        raise IOError(2, 'No such file or directory: %r' % path)
+    elif len(paths) > 1:
+        for path in paths:
+            for line in read_input(path, stdin=stdin):
+                yield line
+        return
+    else:
+        path = paths[0]
+
+    # recurse through directories
+    if os.path.isdir(path):
+        for dirname, _, filenames in os.walk(path):
+            for filename in filenames:
+                for line in read_input(os.path.join(dirname, filename),
+                                       stdin=stdin):
+                    yield line
+        return
+
+    # read from files
+    for idx, line in read_file_linenums(path):
+        yield (idx, line)
+
 
 def read_file(path, fileobj=None, yields_lines=True, cleanup=None):
     """Yields lines from a file, possibly decompressing it based on file
@@ -451,6 +496,58 @@ def read_file(path, fileobj=None, yields_lines=True, cleanup=None):
             if cleanup:
                 cleanup()
 
+def read_file_linenums(path, fileobj=None, yields_lines=True, cleanup=None):
+    """Yields lines from a file, possibly decompressing it based on file
+    extension.
+
+    Currently we handle compressed files with the extensions ``.gz`` and
+    ``.bz2``.
+
+    :param string path: file path. Need not be a path on the local filesystem
+                        (URIs are okay) as long as you specify *fileobj* too.
+    :param fileobj: file object to read from. Need not be seekable. If this
+                    is omitted, we ``open(path)``.
+    :param yields_lines: Does iterating over *fileobj* yield lines (like
+                         file objects are supposed to)? If not, set this to
+                         ``False`` (useful for :py:class:`boto.s3.Key`)
+    :param cleanup: Optional callback to call with no arguments when EOF is
+                    reached or an exception is thrown.
+    """
+    # sometimes values declared in the ``try`` block aren't accessible from the
+    # ``finally`` block. not sure why.
+    f = None
+    try:
+        # open path if we need to
+        if fileobj is None:
+            f = open(path)
+        else:
+            f = fileobj
+
+        if path.endswith('.gz'):
+            lines = buffer_iterator_to_line_iterator(gunzip_stream(f))
+        elif path.endswith('.bz2'):
+            if bz2 is None:
+                raise Exception('bz2 module was not successfully imported'
+                                ' (likely not installed).')
+            else:
+                lines = bunzip2_stream(f)
+        else:
+            if yields_lines:
+                lines = f
+            else:
+                # handle boto.s3.Key, which yields chunks of bytes, not lines
+                lines = buffer_iterator_to_line_iterator(f)
+
+        for idx, line in enumerate(lines):
+            yield (idx, line)
+
+    finally:
+        try:
+            if f and f is not fileobj:
+                f.close()
+        finally:
+            if cleanup:
+                cleanup()
 
 def _bunzip2_stream(fileobj, bufsize=1024):
     """Decompress gzipped data on the fly.

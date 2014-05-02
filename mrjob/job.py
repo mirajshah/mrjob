@@ -47,7 +47,7 @@ from mrjob.launch import _READ_ARGS_FROM_SYS_ARGV
 from mrjob.step import JarStep
 from mrjob.step import MRStep
 from mrjob.step import _JOB_STEP_FUNC_PARAMS
-from mrjob.util import read_input
+from mrjob.util import read_input, read_input_linenums
 
 
 log = logging.getLogger(__name__)
@@ -658,7 +658,7 @@ class MRJob(MRJobLauncher):
 
     ### Other useful utilities ###
 
-    def _read_input(self):
+    def _read_input(self, line_nums=False):
         """Read from stdin, or one more files, or directories.
         Yield one line at time.
 
@@ -668,9 +668,14 @@ class MRJob(MRJobLauncher):
         - Recursively read all files in a directory
         """
         paths = self.args or ['-']
-        for path in paths:
-            for line in read_input(path, stdin=self.stdin):
-                yield line
+        if line_nums:
+            for path in paths:
+                for idx, line in read_input_linenums(path, stdin=self.stdin):
+                    yield (idx, line)
+        else:
+            for path in paths:
+                for line in read_input(path, stdin=self.stdin):
+                    yield line
 
     def _wrap_protocols(self, step_num, step_type):
         """Pick the protocol classes to use for reading and writing
@@ -692,9 +697,14 @@ class MRJob(MRJobLauncher):
         read, write = self.pick_protocols(step_num, step_type)
 
         def read_lines():
-            for line in self._read_input():
+            line_nums = (step_num == 0 and step_type == 'mapper')
+            idx = None
+            for line in self._read_input(line_nums=line_nums):
+                if line_nums:
+                    idx = line[0]
+                    line = line[1]
                 try:
-                    key, value = read(line.rstrip('\r\n'))
+                    key, value = read(line.rstrip('\r\n'), idx=idx)
                     yield key, value
                 except Exception, e:
                     if self.options.strict_protocols:
